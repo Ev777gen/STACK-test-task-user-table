@@ -504,665 +504,653 @@
   </div>
 </template>
 
-<script>
-export default {
-  name: 'UserTable',
-  
-  props: {
-    title: {
-      type: String,
-      default: 'Управление пользователями'
-    },
-    initialPageSize: {
-      type: Number,
-      default: 25
-    },
-    apiEndpoint: {
-      type: String,
-      default: '/api/users'
+<script setup lang="ts">
+import { computed, ref, reactive, onMounted, watch } from 'vue';
+
+// Props
+
+const props = withDefaults(defineProps < {
+  title: string
+  initialPageSize: number
+  apiEndpoint: string
+} > (), {
+  title: 'Управление пользователями',
+  initialPageSize: 25,
+  apiEndpoint: '/api/users',
+});
+
+// Data
+
+// Данные
+const users = reactive([]);
+
+// Состояния загрузки
+const isLoading = ref(false);
+const isSaving = ref(false);
+const error = ref(null);
+
+// Поиск и фильтрация
+const searchQuery = ref('');
+const filterRole = ref('');
+const filterStatus = ref('');
+const dateFrom = ref('');
+const dateTo = ref('');
+
+// Сортировка
+const sortColumn = ref('id');
+const sortDirection = ref('asc');
+
+// Пагинация
+const currentPage = ref(1);
+const pageSize = ref(props.initialPageSize);
+
+// Выбор строк
+const selectedUsers = reactive([]);
+const showAllUsers = ref(false);
+
+// Редактирование
+const editingUserId = ref(null);
+const editForm = ref({
+  name: '',
+  email: '',
+  role: ''
+});
+
+// Модальные окна
+const showAddUserModal = ref(false);
+const showDetailsModal = ref(false);
+const selectedUser = ref(null);
+
+// Новый пользователь
+const newUser = ref({
+  name: '',
+  email: '',
+  role: 'user',
+  sendWelcomeEmail: true
+});
+const newUserErrors = ref({
+  name: '',
+  email: ''
+});
+
+// Computed
+
+// Фильтрация по роли
+const roleFilteredUsers = computed(() => {
+  if (!filterRole.value) {
+    return users;
+  }
+  return users.filter(user => user.role === filterRole.value);
+});
+
+// Фильтрация по статусу
+const statusFilteredUsers = computed(() => {
+  if (!filterStatus.value) {
+    return roleFilteredUsers.value;
+  }
+  return roleFilteredUsers.value.filter(user => user.status === filterStatus.value);
+});
+
+// Фильтрация по датам
+const dateFilteredUsers = computed(() => {
+  let filtered = statusFilteredUsers.value;
+
+  if (dateFrom.value) {
+    const fromDate = new Date(dateFrom.value);
+    filtered = filtered.filter(user => {
+      const userDate = new Date(user.registrationDate);
+      return userDate >= fromDate;
+    });
+  }
+
+  if (dateTo.value) {
+    const toDate = new Date(dateTo.value);
+    toDate.setHours(23, 59, 59, 999);
+    filtered = filtered.filter(user => {
+      const userDate = new Date(user.registrationDate);
+      return userDate <= toDate;
+    });
+  }
+
+  return filtered;
+});
+
+// Поиск
+const filteredAndSearchedUsers = computed(() => {
+  if (!searchQuery.value.trim()) {
+    return dateFilteredUsers.value;
+  }
+
+  const query = searchQuery.value.toLowerCase().trim();
+  return dateFilteredUsers.value.filter(user => {
+    return user.name.toLowerCase().includes(query) ||
+      user.email.toLowerCase().includes(query) ||
+      user.id.toString().includes(query);
+  });
+});
+
+// Сортировка
+const sortedUsers = computed(() => {
+  const users = [...filteredAndSearchedUsers.value];
+
+  users.sort((a, b) => {
+    let aVal = a[sortColumn.value];
+    let bVal = b[sortColumn.value];
+
+    if (sortColumn.value === 'registrationDate' || sortColumn.value === 'lastActivity') {
+      aVal = new Date(aVal).getTime();
+      bVal = new Date(bVal).getTime();
+    } else if (typeof aVal === 'string') {
+      aVal = aVal.toLowerCase();
+      bVal = bVal.toLowerCase();
     }
-  },
-  
-  data() {
-    return {
-      // Данные
-      users: [],
-      
-      // Состояния загрузки
-      isLoading: false,
-      isSaving: false,
-      error: null,
-      
-      // Поиск и фильтрация
-      searchQuery: '',
-      filterRole: '',
-      filterStatus: '',
-      dateFrom: '',
-      dateTo: '',
-      
-      // Сортировка
-      sortColumn: 'id',
-      sortDirection: 'asc',
-      
-      // Пагинация
-      currentPage: 1,
-      pageSize: this.initialPageSize,
-      
-      // Выбор строк
-      selectedUsers: [],
-      showAllUsers: false,
-      
-      // Редактирование
-      editingUserId: null,
-      editForm: {
-        name: '',
-        email: '',
-        role: ''
-      },
-      
-      // Модальные окна
-      showAddUserModal: false,
-      showDetailsModal: false,
-      selectedUser: null,
-      
-      // Новый пользователь
-      newUser: {
-        name: '',
-        email: '',
-        role: 'user',
-        sendWelcomeEmail: true
-      },
-      newUserErrors: {
-        name: '',
-        email: ''
-      }
-    };
-  },
-  
-  computed: {
-    // Фильтрация по роли
-    roleFilteredUsers() {
-      if (!this.filterRole) {
-        return this.users;
-      }
-      return this.users.filter(user => user.role === this.filterRole);
-    },
-    
-    // Фильтрация по статусу
-    statusFilteredUsers() {
-      if (!this.filterStatus) {
-        return this.roleFilteredUsers;
-      }
-      return this.roleFilteredUsers.filter(user => user.status === this.filterStatus);
-    },
-    
-    // Фильтрация по датам
-    dateFilteredUsers() {
-      let filtered = this.statusFilteredUsers;
-      
-      if (this.dateFrom) {
-        const fromDate = new Date(this.dateFrom);
-        filtered = filtered.filter(user => {
-          const userDate = new Date(user.registrationDate);
-          return userDate >= fromDate;
-        });
-      }
-      
-      if (this.dateTo) {
-        const toDate = new Date(this.dateTo);
-        toDate.setHours(23, 59, 59, 999);
-        filtered = filtered.filter(user => {
-          const userDate = new Date(user.registrationDate);
-          return userDate <= toDate;
-        });
-      }
-      
-      return filtered;
-    },
-    
-    // Поиск
-    filteredAndSearchedUsers() {
-      if (!this.searchQuery.trim()) {
-        return this.dateFilteredUsers;
-      }
-      
-      const query = this.searchQuery.toLowerCase().trim();
-      return this.dateFilteredUsers.filter(user => {
-        return user.name.toLowerCase().includes(query) ||
-               user.email.toLowerCase().includes(query) ||
-               user.id.toString().includes(query);
-      });
-    },
-    
-    // Сортировка
-    sortedUsers() {
-      const users = [...this.filteredAndSearchedUsers];
-      
-      users.sort((a, b) => {
-        let aVal = a[this.sortColumn];
-        let bVal = b[this.sortColumn];
-        
-        if (this.sortColumn === 'registrationDate' || this.sortColumn === 'lastActivity') {
-          aVal = new Date(aVal).getTime();
-          bVal = new Date(bVal).getTime();
-        } else if (typeof aVal === 'string') {
-          aVal = aVal.toLowerCase();
-          bVal = bVal.toLowerCase();
-        }
-        
-        if (aVal < bVal) {
-          return this.sortDirection === 'asc' ? -1 : 1;
-        }
-        if (aVal > bVal) {
-          return this.sortDirection === 'asc' ? 1 : -1;
-        }
-        return 0;
-      });
-      
-      return users;
-    },
-    
-    // Пагинация
-    totalPages() {
-      return Math.ceil(this.sortedUsers.length / this.pageSize);
-    },
-    
-    paginationStart() {
-      return (this.currentPage - 1) * this.pageSize + 1;
-    },
-    
-    paginationEnd() {
-      const end = this.currentPage * this.pageSize;
-      return end > this.sortedUsers.length ? this.sortedUsers.length : end;
-    },
-    
-    paginatedUsers() {
-      const start = (this.currentPage - 1) * this.pageSize;
-      const end = start + this.pageSize;
-      return this.sortedUsers.slice(start, end);
-    },
-    
-    visiblePages() {
-      const pages = [];
-      const total = this.totalPages;
-      const current = this.currentPage;
-      
-      if (total <= 7) {
-        for (let i = 1; i <= total; i++) {
-          pages.push(i);
-        }
-      } else {
-        if (current <= 4) {
-          for (let i = 1; i <= 5; i++) {
-            pages.push(i);
-          }
-          pages.push('...');
-          pages.push(total);
-        } else if (current >= total - 3) {
-          pages.push(1);
-          pages.push('...');
-          for (let i = total - 4; i <= total; i++) {
-            pages.push(i);
-          }
-        } else {
-          pages.push(1);
-          pages.push('...');
-          for (let i = current - 1; i <= current + 1; i++) {
-            pages.push(i);
-          }
-          pages.push('...');
-          pages.push(total);
-        }
-      }
-      
-      return pages;
-    },
-    
-    // Выбор всех
-    isAllSelected() {
-      return this.paginatedUsers.length > 0 && 
-             this.paginatedUsers.every(user => this.selectedUsers.includes(user.id));
-    },
-    
-    // Валидация нового пользователя
-    isNewUserValid() {
-      return this.newUser.name.trim().length > 0 &&
-             this.newUser.email.trim().length > 0 &&
-             this.validateEmail(this.newUser.email) &&
-             !this.newUserErrors.name &&
-             !this.newUserErrors.email;
+
+    if (aVal < bVal) {
+      return sortDirection.value === 'asc' ? -1 : 1;
     }
-  },
-  
-  watch: {
-    searchQuery() {
-      this.currentPage = 1;
-    },
-    
-    filterRole() {
-      this.currentPage = 1;
-    },
-    
-    filterStatus() {
-      this.currentPage = 1;
-    },
-    
-    dateFrom() {
-      this.currentPage = 1;
-    },
-    
-    dateTo() {
-      this.currentPage = 1;
-    },
-    
-    pageSize() {
-      this.currentPage = 1;
+    if (aVal > bVal) {
+      return sortDirection.value === 'asc' ? 1 : -1;
     }
-  },
-  
-  mounted() {
-    this.loadUsers();
-  },
-  
-  methods: {
-    // Загрузка данных
-    async loadUsers() {
-      this.isLoading = true;
-      this.error = null;
-      
-      try {
-        // Симуляция API запроса
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        
-        // Генерация тестовых данных
-        this.users = this.generateMockUsers(100);
-      } catch (err) {
-        this.error = 'Ошибка загрузки данных: ' + err.message;
-      } finally {
-        this.isLoading = false;
+    return 0;
+  });
+
+  return users;
+});
+
+// Пагинация
+const totalPages = computed(() => {
+  return Math.ceil(sortedUsers.value.length / pageSize.value);
+});
+
+const paginationStart = computed(() => {
+  return (currentPage.value - 1) * pageSize.value + 1;
+});
+
+const paginationEnd = computed(() => {
+  const end = currentPage.value * pageSize.value;
+  return end > sortedUsers.value.length ? sortedUsers.value.length : end;
+});
+
+const paginatedUsers = computed(() => {
+  const start = (currentPage.value - 1) * pageSize.value;
+  const end = start + pageSize.value;
+  return sortedUsers.value.slice(start, end);
+});
+
+const visiblePages = computed(() => {
+  const pages = [];
+  const total = totalPages.value;
+  const current = currentPage.value;
+
+  if (total <= 7) {
+    for (let i = 1; i <= total; i++) {
+      pages.push(i);
+    }
+  } else {
+    if (current <= 4) {
+      for (let i = 1; i <= 5; i++) {
+        pages.push(i);
       }
-    },
-    
-    async retryLoad() {
-      await this.loadUsers();
-    },
-    
-    // Генерация mock данных
-    generateMockUsers(count) {
-      const roles = ['admin', 'user', 'moderator'];
-      const statuses = ['active', 'inactive'];
-      const names = ['Иван Петров', 'Мария Сидорова', 'Алексей Иванов', 'Елена Кузнецова', 
-                     'Дмитрий Смирнов', 'Ольга Попова', 'Сергей Васильев', 'Анна Соколова',
-                     'Николай Михайлов', 'Татьяна Новикова'];
-      
-      const users = [];
-      for (let i = 1; i <= count; i++) {
-        const name = names[Math.floor(Math.random() * names.length)] + ' ' + i;
-        const registrationDate = new Date(2020, Math.floor(Math.random() * 12), Math.floor(Math.random() * 28));
-        const lastActivity = new Date(Date.now() - Math.floor(Math.random() * 30 * 24 * 60 * 60 * 1000));
-        
-        users.push({
-          id: i,
-          name: name,
-          email: `user${i}@example.com`,
-          role: roles[Math.floor(Math.random() * roles.length)],
-          status: statuses[Math.floor(Math.random() * statuses.length)],
-          registrationDate: registrationDate.toISOString(),
-          lastActivity: lastActivity.toISOString(),
-          avatar: null,
-          loginCount: Math.floor(Math.random() * 500),
-          postsCount: Math.floor(Math.random() * 100),
-          commentsCount: Math.floor(Math.random() * 300)
-        });
+      pages.push('...');
+      pages.push(total);
+    } else if (current >= total - 3) {
+      pages.push(1);
+      pages.push('...');
+      for (let i = total - 4; i <= total; i++) {
+        pages.push(i);
       }
-      return users;
-    },
-    
-    // Поиск
-    handleSearch() {
-      // Дебаунс можно добавить здесь
-    },
-    
-    // Сортировка
-    sortBy(column) {
-      if (this.sortColumn === column) {
-        this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
-      } else {
-        this.sortColumn = column;
-        this.sortDirection = 'asc';
+    } else {
+      pages.push(1);
+      pages.push('...');
+      for (let i = current - 1; i <= current + 1; i++) {
+        pages.push(i);
       }
-    },
-    
-    // Пагинация
-    goToPage(page) {
-      if (page >= 1 && page <= this.totalPages) {
-        this.currentPage = page;
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-      }
-    },
-    
-    handlePageSizeChange() {
-      this.currentPage = 1;
-    },
-    
-    // Выбор строк
-    toggleSelectUser(userId) {
-      const index = this.selectedUsers.indexOf(userId);
-      if (index > -1) {
-        this.selectedUsers.splice(index, 1);
-      } else {
-        this.selectedUsers.push(userId);
-      }
-    },
-    
-    toggleSelectAll() {
-      if (this.isAllSelected) {
-        this.paginatedUsers.forEach(user => {
-          const index = this.selectedUsers.indexOf(user.id);
-          if (index > -1) {
-            this.selectedUsers.splice(index, 1);
-          }
-        });
-      } else {
-        this.paginatedUsers.forEach(user => {
-          if (!this.selectedUsers.includes(user.id)) {
-            this.selectedUsers.push(user.id);
-          }
-        });
-      }
-    },
-    
-    // Редактирование
-    startEdit(user) {
-      this.editingUserId = user.id;
-      this.editForm = {
-        name: user.name,
-        email: user.email,
-        role: user.role
-      };
-    },
-    
-    cancelEdit() {
-      this.editingUserId = null;
-      this.editForm = {
-        name: '',
-        email: '',
-        role: ''
-      };
-    },
-    
-    async saveEdit(userId) {
-      this.isSaving = true;
-      
-      try {
-        // Симуляция API запроса
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-        const userIndex = this.users.findIndex(u => u.id === userId);
-        if (userIndex !== -1) {
-          this.users[userIndex] = {
-            ...this.users[userIndex],
-            ...this.editForm
-          };
-        }
-        
-        this.editingUserId = null;
-        this.editForm = {
-          name: '',
-          email: '',
-          role: ''
-        };
-      } catch (err) {
-        alert('Ошибка сохранения: ' + err.message);
-      } finally {
-        this.isSaving = false;
-      }
-    },
-    
-    // Удаление
-    async deleteUser(userId) {
-      if (!confirm('Вы уверены, что хотите удалить этого пользователя?')) {
-        return;
-      }
-      
-      try {
-        // Симуляция API запроса
-        await new Promise(resolve => setTimeout(resolve, 300));
-        
-        const index = this.users.findIndex(u => u.id === userId);
-        if (index !== -1) {
-          this.users.splice(index, 1);
-        }
-        
-        // Удаляем из выбранных
-        const selectedIndex = this.selectedUsers.indexOf(userId);
-        if (selectedIndex > -1) {
-          this.selectedUsers.splice(selectedIndex, 1);
-        }
-      } catch (err) {
-        alert('Ошибка удаления: ' + err.message);
-      }
-    },
-    
-    async deleteSelectedUsers() {
-      if (!confirm(`Вы уверены, что хотите удалить ${this.selectedUsers.length} пользователей?`)) {
-        return;
-      }
-      
-      try {
-        // Симуляция API запроса
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-        this.users = this.users.filter(user => !this.selectedUsers.includes(user.id));
-        this.selectedUsers = [];
-      } catch (err) {
-        alert('Ошибка удаления: ' + err.message);
-      }
-    },
-    
-    // Переключение статуса
-    async toggleUserStatus(userId) {
-      try {
-        const user = this.users.find(u => u.id === userId);
-        if (user) {
-          user.status = user.status === 'active' ? 'inactive' : 'active';
-        }
-      } catch (err) {
-        alert('Ошибка изменения статуса: ' + err.message);
-      }
-    },
-    
-    // Модальное окно добавления
-    openAddUserModal() {
-      this.showAddUserModal = true;
-      this.newUser = {
-        name: '',
-        email: '',
-        role: 'user',
-        sendWelcomeEmail: true
-      };
-      this.newUserErrors = {
-        name: '',
-        email: ''
-      };
-    },
-    
-    closeAddUserModal() {
-      this.showAddUserModal = false;
-    },
-    
-    validateNewUserName() {
-      if (this.newUser.name.trim().length === 0) {
-        this.newUserErrors.name = 'Имя обязательно для заполнения';
-      } else if (this.newUser.name.trim().length < 3) {
-        this.newUserErrors.name = 'Имя должно содержать минимум 3 символа';
-      } else {
-        this.newUserErrors.name = '';
-      }
-    },
-    
-    validateNewUserEmail() {
-      if (this.newUser.email.trim().length === 0) {
-        this.newUserErrors.email = 'Email обязателен для заполнения';
-      } else if (!this.validateEmail(this.newUser.email)) {
-        this.newUserErrors.email = 'Некорректный формат email';
-      } else if (this.users.some(u => u.email === this.newUser.email)) {
-        this.newUserErrors.email = 'Пользователь с таким email уже существует';
-      } else {
-        this.newUserErrors.email = '';
-      }
-    },
-    
-    validateEmail(email) {
-      const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      return re.test(email);
-    },
-    
-    async addNewUser() {
-      this.validateNewUserName();
-      this.validateNewUserEmail();
-      
-      if (!this.isNewUserValid) {
-        return;
-      }
-      
-      this.isSaving = true;
-      
-      try {
-        // Симуляция API запроса
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        
-        const newUser = {
-          id: Math.max(...this.users.map(u => u.id)) + 1,
-          name: this.newUser.name,
-          email: this.newUser.email,
-          role: this.newUser.role,
-          status: 'active',
-          registrationDate: new Date().toISOString(),
-          lastActivity: new Date().toISOString(),
-          avatar: null,
-          loginCount: 0,
-          postsCount: 0,
-          commentsCount: 0
-        };
-        
-        this.users.unshift(newUser);
-        this.closeAddUserModal();
-      } catch (err) {
-        alert('Ошибка создания пользователя: ' + err.message);
-      } finally {
-        this.isSaving = false;
-      }
-    },
-    
-    // Модальное окно деталей
-    openUserDetails(user) {
-      this.selectedUser = user;
-      this.showDetailsModal = true;
-    },
-    
-    closeDetailsModal() {
-      this.showDetailsModal = false;
-      this.selectedUser = null;
-    },
-    
-    // Экспорт
-    exportToCSV() {
-      const usersToExport = this.selectedUsers.length > 0
-        ? this.users.filter(u => this.selectedUsers.includes(u.id))
-        : this.sortedUsers;
-      
-      const headers = ['ID', 'Имя', 'Email', 'Роль', 'Статус', 'Дата регистрации'];
-      const rows = usersToExport.map(user => [
-        user.id,
-        user.name,
-        user.email,
-        this.getRoleLabel(user.role),
-        user.status === 'active' ? 'Активен' : 'Неактивен',
-        this.formatDate(user.registrationDate)
-      ]);
-      
-      let csv = headers.join(',') + '\n';
-      rows.forEach(row => {
-        csv += row.map(cell => `"${cell}"`).join(',') + '\n';
-      });
-      
-      const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      link.download = `users_export_${new Date().getTime()}.csv`;
-      link.click();
-    },
-    
-    // Очистка фильтров
-    clearDateFilter() {
-      this.dateFrom = '';
-      this.dateTo = '';
-    },
-    
-    clearAllFilters() {
-      this.searchQuery = '';
-      this.filterRole = '';
-      this.filterStatus = '';
-      this.dateFrom = '';
-      this.dateTo = '';
-    },
-    
-    // Утилиты
-    getRoleLabel(role) {
-      const labels = {
-        admin: 'Администратор',
-        user: 'Пользователь',
-        moderator: 'Модератор'
-      };
-      return labels[role] || role;
-    },
-    
-    formatDate(dateString) {
-      const date = new Date(dateString);
-      return date.toLocaleDateString('ru-RU', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric'
-      });
-    },
-    
-    formatRelativeTime(dateString) {
-      const date = new Date(dateString);
-      const now = new Date();
-      const diffMs = now - date;
-      const diffMins = Math.floor(diffMs / 60000);
-      const diffHours = Math.floor(diffMs / 3600000);
-      const diffDays = Math.floor(diffMs / 86400000);
-      
-      if (diffMins < 1) return 'только что';
-      if (diffMins < 60) return `${diffMins} мин. назад`;
-      if (diffHours < 24) return `${diffHours} ч. назад`;
-      if (diffDays < 30) return `${diffDays} дн. назад`;
-      return this.formatDate(dateString);
-    },
-    
-    getActivityClass(dateString) {
-      const date = new Date(dateString);
-      const now = new Date();
-      const diffDays = Math.floor((now - date) / 86400000);
-      
-      if (diffDays < 1) return 'activity-recent';
-      if (diffDays < 7) return 'activity-week';
-      if (diffDays < 30) return 'activity-month';
-      return 'activity-old';
-    },
-    
-    getDefaultAvatar(name) {
-      const colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8'];
-      const initial = name.charAt(0).toUpperCase();
-      const colorIndex = name.charCodeAt(0) % colors.length;
-      const color = colors[colorIndex];
-      
-      return `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Crect width='40' height='40' fill='${encodeURIComponent(color)}'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' font-family='Arial' font-size='20' fill='white'%3E${initial}%3C/text%3E%3C/svg%3E`;
+      pages.push('...');
+      pages.push(total);
     }
   }
-};
+
+  return pages;
+});
+
+// Выбор всех
+const isAllSelected = computed(() => {
+  return paginatedUsers.value.length > 0 && 
+          paginatedUsers.value.every(user => selectedUsers.includes(user.id));
+})
+
+// Валидация нового пользователя
+const isNewUserValid = computed(() => {
+  return newUser.value.name.trim().length > 0 &&
+    newUser.value.email.trim().length > 0 &&
+    validateEmail(newUser.value.email) &&
+    !newUserErrors.value.name &&
+    !newUserErrors.value.email;
+});
+
+// Watch
+
+watch([
+  searchQuery,
+  filterRole,
+  filterStatus,
+  dateFrom,
+  dateTo,
+  pageSize,
+], () => {
+  handlePageSizeChange()
+});
+
+// Lifecycle hooks
+
+onMounted(() => {
+  loadUsers();
+});
+
+// Methods
+
+// Загрузка данных
+async function loadUsers() {
+  isLoading.value = true;
+  error.value = null;
+  
+  try {
+    // Симуляция API запроса
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    // Генерация тестовых данных
+    users.push(...generateMockUsers(100));
+  } catch (err) {
+    error.value = 'Ошибка загрузки данных: ' + err.message;
+  } finally {
+    isLoading.value = false;
+  }
+}
+
+async function retryLoad() {
+  await loadUsers();
+}
+
+// Генерация mock данных
+function generateMockUsers(count) {
+  const roles = ['admin', 'user', 'moderator'];
+  const statuses = ['active', 'inactive'];
+  const names = ['Иван Петров', 'Мария Сидорова', 'Алексей Иванов', 'Елена Кузнецова', 
+                  'Дмитрий Смирнов', 'Ольга Попова', 'Сергей Васильев', 'Анна Соколова',
+                  'Николай Михайлов', 'Татьяна Новикова'];
+  
+  const users = [];
+  for (let i = 1; i <= count; i++) {
+    const name = names[Math.floor(Math.random() * names.length)] + ' ' + i;
+    const registrationDate = new Date(2020, Math.floor(Math.random() * 12), Math.floor(Math.random() * 28));
+    const lastActivity = new Date(Date.now() - Math.floor(Math.random() * 30 * 24 * 60 * 60 * 1000));
+    
+    users.push({
+      id: i,
+      name: name,
+      email: `user${i}@example.com`,
+      role: roles[Math.floor(Math.random() * roles.length)],
+      status: statuses[Math.floor(Math.random() * statuses.length)],
+      registrationDate: registrationDate.toISOString(),
+      lastActivity: lastActivity.toISOString(),
+      avatar: null,
+      loginCount: Math.floor(Math.random() * 500),
+      postsCount: Math.floor(Math.random() * 100),
+      commentsCount: Math.floor(Math.random() * 300)
+    });
+  }
+  return users;
+}
+
+// Поиск
+function handleSearch() {
+  // Дебаунс можно добавить здесь
+}
+
+// Сортировка
+function sortBy(column) {
+  if (sortColumn.value === column) {
+    sortDirection.value = sortDirection.value === 'asc' ? 'desc' : 'asc';
+  } else {
+    sortColumn.value = column;
+    sortDirection.value = 'asc';
+  }
+}
+
+// Пагинация
+function goToPage(page) {
+  if (page >= 1 && page <= totalPages.value) {
+    currentPage.value = page;
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+}
+
+function handlePageSizeChange() {
+  currentPage.value = 1;
+}
+
+// Выбор строк
+function toggleSelectUser(userId) {
+  const index = selectedUsers.indexOf(userId);
+  if (index > -1) {
+    selectedUsers.splice(index, 1);
+  } else {
+    selectedUsers.push(userId);
+  }
+}
+
+function toggleSelectAll() {
+  if (isAllSelected.value) {
+    paginatedUsers.value.forEach(user => {
+      const index = selectedUsers.indexOf(user.id);
+      if (index > -1) {
+        selectedUsers.splice(index, 1);
+      }
+    });
+  } else {
+    paginatedUsers.value.forEach(user => {
+      if (!selectedUsers.includes(user.id)) {
+        selectedUsers.push(user.id);
+      }
+    });
+  }
+}
+
+// Редактирование
+function startEdit(user) {
+  editingUserId.value = user.id;
+  editForm.value = {
+    name: user.name,
+    email: user.email,
+    role: user.role
+  };
+}
+
+function cancelEdit() {
+  editingUserId.value = null;
+  editForm.value = {
+    name: '',
+    email: '',
+    role: ''
+  };
+}
+
+async function saveEdit(userId) {
+  isSaving.value = true;
+  
+  try {
+    // Симуляция API запроса
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    const userIndex = users.findIndex(u => u.id === userId);
+    if (userIndex !== -1) {
+      users[userIndex] = {
+        ...users[userIndex],
+        ...editForm.value
+      };
+    }
+    
+    editingUserId.value = null;
+    editForm.value = {
+      name: '',
+      email: '',
+      role: ''
+    };
+  } catch (err) {
+    alert('Ошибка сохранения: ' + err.message);
+  } finally {
+    isSaving.value = false;
+  }
+}
+
+// Удаление
+async function deleteUser(userId) {
+  if (!confirm('Вы уверены, что хотите удалить этого пользователя?')) {
+    return;
+  }
+  
+  try {
+    // Симуляция API запроса
+    await new Promise(resolve => setTimeout(resolve, 300));
+    
+    const index = users.findIndex(u => u.id === userId);
+    if (index !== -1) {
+      users.splice(index, 1);
+    }
+    
+    // Удаляем из выбранных
+    const selectedIndex = selectedUsers.indexOf(userId);
+    if (selectedIndex > -1) {
+      selectedUsers.splice(selectedIndex, 1);
+    }
+  } catch (err) {
+    alert('Ошибка удаления: ' + err.message);
+  }
+}
+
+async function deleteSelectedUsers() {
+  if (!confirm(`Вы уверены, что хотите удалить ${selectedUsers.length} пользователей?`)) {
+    return;
+  }
+  
+  try {
+    // Симуляция API запроса
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    selectedUsers.forEach(user => {
+      const index = users.findIndex(u => u.id === user.id)
+      if (index === -1)
+        throw new Error('Пользователь не найден');
+
+      users.splice(index, 1)
+    })
+    selectedUsers.length = 0;
+  } catch (err) {
+    alert('Ошибка удаления: ' + err.message);
+  }
+}
+
+// Переключение статуса
+async function toggleUserStatus(userId) {
+  try {
+    const user = users.find(u => u.id === userId);
+    if (user) {
+      user.status = user.status === 'active' ? 'inactive' : 'active';
+    }
+  } catch (err) {
+    alert('Ошибка изменения статуса: ' + err.message);
+  }
+}
+
+// Модальное окно добавления
+function openAddUserModal() {
+  showAddUserModal.value = true;
+  newUser.value = {
+    name: '',
+    email: '',
+    role: 'user',
+    sendWelcomeEmail: true
+  };
+  newUserErrors.value = {
+    name: '',
+    email: ''
+  };
+}
+
+function closeAddUserModal() {
+  showAddUserModal.value = false;
+}
+
+function validateNewUserName() {
+  if (newUser.value.name.trim().length === 0) {
+    newUserErrors.value.name = 'Имя обязательно для заполнения';
+  } else if (newUser.value.name.trim().length < 3) {
+    newUserErrors.value.name = 'Имя должно содержать минимум 3 символа';
+  } else {
+    newUserErrors.value.name = '';
+  }
+}
+
+function validateNewUserEmail() {
+  if (newUser.value.email.trim().length === 0) {
+    newUserErrors.value.email = 'Email обязателен для заполнения';
+  } else if (!validateEmail(newUser.value.email)) {
+    newUserErrors.value.email = 'Некорректный формат email';
+  } else if (users.some(u => u.email === newUser.value.email)) {
+    newUserErrors.value.email = 'Пользователь с таким email уже существует';
+  } else {
+    newUserErrors.value.email = '';
+  }
+}
+
+function validateEmail(email) {
+  const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return re.test(email);
+}
+
+async function addNewUser() {
+  validateNewUserName();
+  validateNewUserEmail();
+  
+  if (!isNewUserValid.value) {
+    return;
+  }
+  
+  isSaving.value = true;
+  
+  try {
+    // Симуляция API запроса
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    const user = {
+      id: Math.max(...users.map(u => u.id)) + 1,
+      name: newUser.value.name,
+      email: newUser.value.email,
+      role: newUser.value.role,
+      status: 'active',
+      registrationDate: new Date().toISOString(),
+      lastActivity: new Date().toISOString(),
+      avatar: null,
+      loginCount: 0,
+      postsCount: 0,
+      commentsCount: 0
+    };
+    
+    users.unshift(user);
+    closeAddUserModal();
+  } catch (err) {
+    alert('Ошибка создания пользователя: ' + err.message);
+  } finally {
+    isSaving.value = false;
+  }
+}
+
+// Модальное окно деталей
+function openUserDetails(user) {
+  selectedUser.value = user;
+  showDetailsModal.value = true;
+}
+
+function closeDetailsModal() {
+  showDetailsModal.value = false;
+  selectedUser.value = null;
+}
+
+// Экспорт
+function exportToCSV() {
+  const usersToExport = selectedUsers.length > 0
+    ? users.filter(u => selectedUsers.includes(u.id))
+    : sortedUsers.value;
+  
+  const headers = ['ID', 'Имя', 'Email', 'Роль', 'Статус', 'Дата регистрации'];
+  const rows = usersToExport.map(user => [
+    user.id,
+    user.name,
+    user.email,
+    getRoleLabel(user.role),
+    user.status === 'active' ? 'Активен' : 'Неактивен',
+    formatDate(user.registrationDate)
+  ]);
+  
+  let csv = headers.join(',') + '\n';
+  rows.forEach(row => {
+    csv += row.map(cell => `"${cell}"`).join(',') + '\n';
+  });
+  
+  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `users_export_${new Date().getTime()}.csv`;
+  link.click();
+}
+
+// Очистка фильтров
+function clearDateFilter() {
+  dateFrom.value = '';
+  dateTo.value = '';
+}
+
+function clearAllFilters() {
+  searchQuery.value = '';
+  filterRole.value = '';
+  filterStatus.value = '';
+  dateFrom.value = '';
+  dateTo.value = '';
+}
+
+// Утилиты
+function getRoleLabel(role) {
+  const labels = {
+    admin: 'Администратор',
+    user: 'Пользователь',
+    moderator: 'Модератор'
+  };
+  return labels[role] || role;
+}
+
+function formatDate(dateString) {
+  const date = new Date(dateString);
+  return date.toLocaleDateString('ru-RU', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  });
+}
+
+function formatRelativeTime(dateString) {
+  const date = new Date(dateString);
+  const now = new Date();
+  const diffMs = now - date;
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+  
+  if (diffMins < 1) return 'только что';
+  if (diffMins < 60) return `${diffMins} мин. назад`;
+  if (diffHours < 24) return `${diffHours} ч. назад`;
+  if (diffDays < 30) return `${diffDays} дн. назад`;
+  return formatDate(dateString);
+}
+
+function getActivityClass(dateString) {
+  const date = new Date(dateString);
+  const now = new Date();
+  const diffDays = Math.floor((now - date) / 86400000);
+  
+  if (diffDays < 1) return 'activity-recent';
+  if (diffDays < 7) return 'activity-week';
+  if (diffDays < 30) return 'activity-month';
+  return 'activity-old';
+}
+
+function getDefaultAvatar(name) {
+  const colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8'];
+  const initial = name.charAt(0).toUpperCase();
+  const colorIndex = name.charCodeAt(0) % colors.length;
+  const color = colors[colorIndex];
+  
+  return `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Crect width='40' height='40' fill='${encodeURIComponent(color)}'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' font-family='Arial' font-size='20' fill='white'%3E${initial}%3C/text%3E%3C/svg%3E`;
+}
 </script>
 
 <style scoped>
