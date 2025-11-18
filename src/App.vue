@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import UserTable from './components/UserTable.vue'
+import UserTable from './components/user/UserTable.vue'
 </script>
 
 <template>
-  <UserTable msg="Vite + Vue" />
+  <UserTable />
 </template>
 
 <style scoped>

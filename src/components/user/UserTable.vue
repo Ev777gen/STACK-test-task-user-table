@@ -509,25 +509,47 @@ import { computed, ref, reactive, onMounted, watch } from 'vue';
 
 // Props
 
-const props = withDefaults(defineProps < {
+const props = withDefaults(defineProps<{
   title: string
   initialPageSize: number
   apiEndpoint: string
-} > (), {
+}>(), {
   title: 'Управление пользователями',
   initialPageSize: 25,
   apiEndpoint: '/api/users',
 });
 
+// Types
+
+interface User {
+  id: number
+  name: string
+  email: string
+  role: string
+  status: string
+  registrationDate: string
+  lastActivity: string
+  avatar: string | null
+  loginCount: number
+  postsCount: number
+  commentsCount: number
+}
+
+interface EditForm {
+  name: string
+  email: string
+  role: string
+}
+
 // Data
 
 // Данные
-const users = reactive([]);
+const users: User[] = reactive([]);
 
 // Состояния загрузки
 const isLoading = ref(false);
 const isSaving = ref(false);
-const error = ref(null);
+const error = ref<string | null>(null);
 
 // Поиск и фильтрация
 const searchQuery = ref('');
@@ -542,15 +564,15 @@ const sortDirection = ref('asc');
 
 // Пагинация
 const currentPage = ref(1);
-const pageSize = ref(props.initialPageSize);
+const pageSize = ref<number>(props.initialPageSize);
 
 // Выбор строк
-const selectedUsers = reactive([]);
+const selectedUsers: User['id'][] = reactive([]);
 const showAllUsers = ref(false);
 
 // Редактирование
-const editingUserId = ref(null);
-const editForm = ref({
+const editingUserId = ref<number | null>(null);
+const editForm = ref<EditForm>({
   name: '',
   email: '',
   role: ''
@@ -559,16 +581,16 @@ const editForm = ref({
 // Модальные окна
 const showAddUserModal = ref(false);
 const showDetailsModal = ref(false);
-const selectedUser = ref(null);
+const selectedUser = ref<User | null>(null);
 
 // Новый пользователь
-const newUser = ref({
+const newUser = ref<Partial<User>>({
   name: '',
   email: '',
   role: 'user',
   sendWelcomeEmail: true
 });
-const newUserErrors = ref({
+const newUserErrors = ref<{ name: string, email: string }>({
   name: '',
   email: ''
 });
@@ -576,7 +598,7 @@ const newUserErrors = ref({
 // Computed
 
 // Фильтрация по роли
-const roleFilteredUsers = computed(() => {
+const roleFilteredUsers = computed<User[]>(() => {
   if (!filterRole.value) {
     return users;
   }
@@ -584,7 +606,7 @@ const roleFilteredUsers = computed(() => {
 });
 
 // Фильтрация по статусу
-const statusFilteredUsers = computed(() => {
+const statusFilteredUsers = computed<User[]>(() => {
   if (!filterStatus.value) {
     return roleFilteredUsers.value;
   }
@@ -592,7 +614,7 @@ const statusFilteredUsers = computed(() => {
 });
 
 // Фильтрация по датам
-const dateFilteredUsers = computed(() => {
+const dateFilteredUsers = computed<User[]>(() => {
   let filtered = statusFilteredUsers.value;
 
   if (dateFrom.value) {
@@ -616,7 +638,7 @@ const dateFilteredUsers = computed(() => {
 });
 
 // Поиск
-const filteredAndSearchedUsers = computed(() => {
+const filteredAndSearchedUsers = computed<User[]>(() => {
   if (!searchQuery.value.trim()) {
     return dateFilteredUsers.value;
   }
@@ -630,7 +652,7 @@ const filteredAndSearchedUsers = computed(() => {
 });
 
 // Сортировка
-const sortedUsers = computed(() => {
+const sortedUsers = computed<User[]>(() => {
   const users = [...filteredAndSearchedUsers.value];
 
   users.sort((a, b) => {
@@ -658,26 +680,26 @@ const sortedUsers = computed(() => {
 });
 
 // Пагинация
-const totalPages = computed(() => {
+const totalPages = computed<number>(() => {
   return Math.ceil(sortedUsers.value.length / pageSize.value);
 });
 
-const paginationStart = computed(() => {
+const paginationStart = computed<number>(() => {
   return (currentPage.value - 1) * pageSize.value + 1;
 });
 
-const paginationEnd = computed(() => {
+const paginationEnd = computed<number>(() => {
   const end = currentPage.value * pageSize.value;
   return end > sortedUsers.value.length ? sortedUsers.value.length : end;
 });
 
-const paginatedUsers = computed(() => {
+const paginatedUsers = computed<User[]>(() => {
   const start = (currentPage.value - 1) * pageSize.value;
   const end = start + pageSize.value;
   return sortedUsers.value.slice(start, end);
 });
 
-const visiblePages = computed(() => {
+const visiblePages = computed<number[]>(() => {
   const pages = [];
   const total = totalPages.value;
   const current = currentPage.value;
@@ -714,18 +736,18 @@ const visiblePages = computed(() => {
 });
 
 // Выбор всех
-const isAllSelected = computed(() => {
+const isAllSelected = computed<boolean>(() => {
   return paginatedUsers.value.length > 0 && 
           paginatedUsers.value.every(user => selectedUsers.includes(user.id));
 })
 
 // Валидация нового пользователя
-const isNewUserValid = computed(() => {
-  return newUser.value.name.trim().length > 0 &&
-    newUser.value.email.trim().length > 0 &&
+const isNewUserValid = computed<boolean>(() => {
+  return Boolean(newUser.value.name && newUser.value.name.trim().length > 0 &&
+    newUser.value.email && newUser.value.email.trim().length > 0 &&
     validateEmail(newUser.value.email) &&
     !newUserErrors.value.name &&
-    !newUserErrors.value.email;
+    !newUserErrors.value.email);
 });
 
 // Watch
@@ -750,7 +772,7 @@ onMounted(() => {
 // Methods
 
 // Загрузка данных
-async function loadUsers() {
+async function loadUsers(): Promise<void> {
   isLoading.value = true;
   error.value = null;
   
@@ -761,25 +783,27 @@ async function loadUsers() {
     // Генерация тестовых данных
     users.push(...generateMockUsers(100));
   } catch (err) {
-    error.value = 'Ошибка загрузки данных: ' + err.message;
+    if (err instanceof Error) {
+      error.value = 'Ошибка загрузки данных: ' + err.message;
+    }
   } finally {
     isLoading.value = false;
   }
 }
 
-async function retryLoad() {
+async function retryLoad(): Promise<void> {
   await loadUsers();
 }
 
 // Генерация mock данных
-function generateMockUsers(count) {
+function generateMockUsers(count: number): User[] {
   const roles = ['admin', 'user', 'moderator'];
   const statuses = ['active', 'inactive'];
   const names = ['Иван Петров', 'Мария Сидорова', 'Алексей Иванов', 'Елена Кузнецова', 
                   'Дмитрий Смирнов', 'Ольга Попова', 'Сергей Васильев', 'Анна Соколова',
                   'Николай Михайлов', 'Татьяна Новикова'];
   
-  const users = [];
+  const users: User[] = [];
   for (let i = 1; i <= count; i++) {
     const name = names[Math.floor(Math.random() * names.length)] + ' ' + i;
     const registrationDate = new Date(2020, Math.floor(Math.random() * 12), Math.floor(Math.random() * 28));
@@ -789,8 +813,8 @@ function generateMockUsers(count) {
       id: i,
       name: name,
       email: `user${i}@example.com`,
-      role: roles[Math.floor(Math.random() * roles.length)],
-      status: statuses[Math.floor(Math.random() * statuses.length)],
+      role: roles[Math.floor(Math.random() * roles.length)]!,
+      status: statuses[Math.floor(Math.random() * statuses.length)]!,
       registrationDate: registrationDate.toISOString(),
       lastActivity: lastActivity.toISOString(),
       avatar: null,
@@ -808,7 +832,7 @@ function handleSearch() {
 }
 
 // Сортировка
-function sortBy(column) {
+function sortBy(column: string): void {
   if (sortColumn.value === column) {
     sortDirection.value = sortDirection.value === 'asc' ? 'desc' : 'asc';
   } else {
@@ -818,19 +842,19 @@ function sortBy(column) {
 }
 
 // Пагинация
-function goToPage(page) {
+function goToPage(page: number): void {
   if (page >= 1 && page <= totalPages.value) {
     currentPage.value = page;
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 }
 
-function handlePageSizeChange() {
+function handlePageSizeChange(): void {
   currentPage.value = 1;
 }
 
 // Выбор строк
-function toggleSelectUser(userId) {
+function toggleSelectUser(userId: User['id']): void {
   const index = selectedUsers.indexOf(userId);
   if (index > -1) {
     selectedUsers.splice(index, 1);
@@ -839,7 +863,7 @@ function toggleSelectUser(userId) {
   }
 }
 
-function toggleSelectAll() {
+function toggleSelectAll(): void {
   if (isAllSelected.value) {
     paginatedUsers.value.forEach(user => {
       const index = selectedUsers.indexOf(user.id);
@@ -857,7 +881,7 @@ function toggleSelectAll() {
 }
 
 // Редактирование
-function startEdit(user) {
+function startEdit(user: User): void {
   editingUserId.value = user.id;
   editForm.value = {
     name: user.name,
@@ -866,7 +890,7 @@ function startEdit(user) {
   };
 }
 
-function cancelEdit() {
+function cancelEdit(): void {
   editingUserId.value = null;
   editForm.value = {
     name: '',
@@ -875,7 +899,7 @@ function cancelEdit() {
   };
 }
 
-async function saveEdit(userId) {
+async function saveEdit(userId: User['id']): Promise<void> {
   isSaving.value = true;
   
   try {
@@ -897,14 +921,16 @@ async function saveEdit(userId) {
       role: ''
     };
   } catch (err) {
-    alert('Ошибка сохранения: ' + err.message);
+    if (err instanceof Error) {
+      alert('Ошибка сохранения: ' + err.message);
+    }
   } finally {
     isSaving.value = false;
   }
 }
 
 // Удаление
-async function deleteUser(userId) {
+async function deleteUser(userId: User['id']): Promise<void> {
   if (!confirm('Вы уверены, что хотите удалить этого пользователя?')) {
     return;
   }
@@ -924,11 +950,13 @@ async function deleteUser(userId) {
       selectedUsers.splice(selectedIndex, 1);
     }
   } catch (err) {
-    alert('Ошибка удаления: ' + err.message);
+    if (err instanceof Error) {
+      alert('Ошибка удаления: ' + err.message);
+    }
   }
 }
 
-async function deleteSelectedUsers() {
+async function deleteSelectedUsers(): Promise<void> {
   if (!confirm(`Вы уверены, что хотите удалить ${selectedUsers.length} пользователей?`)) {
     return;
   }
@@ -946,24 +974,28 @@ async function deleteSelectedUsers() {
     })
     selectedUsers.length = 0;
   } catch (err) {
-    alert('Ошибка удаления: ' + err.message);
+    if (err instanceof Error) {
+      alert('Ошибка удаления: ' + err.message);
+    }
   }
 }
 
 // Переключение статуса
-async function toggleUserStatus(userId) {
+async function toggleUserStatus(userId: User['id']): Promise<void> {
   try {
     const user = users.find(u => u.id === userId);
     if (user) {
       user.status = user.status === 'active' ? 'inactive' : 'active';
     }
   } catch (err) {
-    alert('Ошибка изменения статуса: ' + err.message);
+    if (err instanceof Error) {
+      alert('Ошибка изменения статуса: ' + err.message);
+    }
   }
 }
 
 // Модальное окно добавления
-function openAddUserModal() {
+function openAddUserModal(): void {
   showAddUserModal.value = true;
   newUser.value = {
     name: '',
@@ -977,11 +1009,11 @@ function openAddUserModal() {
   };
 }
 
-function closeAddUserModal() {
+function closeAddUserModal(): void {
   showAddUserModal.value = false;
 }
 
-function validateNewUserName() {
+function validateNewUserName(): void {
   if (newUser.value.name.trim().length === 0) {
     newUserErrors.value.name = 'Имя обязательно для заполнения';
   } else if (newUser.value.name.trim().length < 3) {
@@ -991,7 +1023,7 @@ function validateNewUserName() {
   }
 }
 
-function validateNewUserEmail() {
+function validateNewUserEmail(): void {
   if (newUser.value.email.trim().length === 0) {
     newUserErrors.value.email = 'Email обязателен для заполнения';
   } else if (!validateEmail(newUser.value.email)) {
@@ -1003,12 +1035,12 @@ function validateNewUserEmail() {
   }
 }
 
-function validateEmail(email) {
+function validateEmail(email: string): boolean {
   const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   return re.test(email);
 }
 
-async function addNewUser() {
+async function addNewUser(): Promise<void> {
   validateNewUserName();
   validateNewUserEmail();
   
@@ -1022,7 +1054,7 @@ async function addNewUser() {
     // Симуляция API запроса
     await new Promise(resolve => setTimeout(resolve, 1000));
     
-    const user = {
+    const user: User = {
       id: Math.max(...users.map(u => u.id)) + 1,
       name: newUser.value.name,
       email: newUser.value.email,
@@ -1039,25 +1071,27 @@ async function addNewUser() {
     users.unshift(user);
     closeAddUserModal();
   } catch (err) {
-    alert('Ошибка создания пользователя: ' + err.message);
+    if (err instanceof Error) {
+      alert('Ошибка создания пользователя: ' + err.message);
+    }
   } finally {
     isSaving.value = false;
   }
 }
 
 // Модальное окно деталей
-function openUserDetails(user) {
+function openUserDetails(user: User): void {
   selectedUser.value = user;
   showDetailsModal.value = true;
 }
 
-function closeDetailsModal() {
+function closeDetailsModal(): void {
   showDetailsModal.value = false;
   selectedUser.value = null;
 }
 
 // Экспорт
-function exportToCSV() {
+function exportToCSV(): void {
   const usersToExport = selectedUsers.length > 0
     ? users.filter(u => selectedUsers.includes(u.id))
     : sortedUsers.value;
@@ -1085,12 +1119,12 @@ function exportToCSV() {
 }
 
 // Очистка фильтров
-function clearDateFilter() {
+function clearDateFilter(): void {
   dateFrom.value = '';
   dateTo.value = '';
 }
 
-function clearAllFilters() {
+function clearAllFilters(): void {
   searchQuery.value = '';
   filterRole.value = '';
   filterStatus.value = '';
@@ -1099,7 +1133,7 @@ function clearAllFilters() {
 }
 
 // Утилиты
-function getRoleLabel(role) {
+function getRoleLabel(role: 'admin' | 'user' | 'moderator' | string): string {
   const labels = {
     admin: 'Администратор',
     user: 'Пользователь',
@@ -1108,7 +1142,7 @@ function getRoleLabel(role) {
   return labels[role] || role;
 }
 
-function formatDate(dateString) {
+function formatDate(dateString: string): string {
   const date = new Date(dateString);
   return date.toLocaleDateString('ru-RU', {
     year: 'numeric',
@@ -1117,7 +1151,7 @@ function formatDate(dateString) {
   });
 }
 
-function formatRelativeTime(dateString) {
+function formatRelativeTime(dateString: string): string {
   const date = new Date(dateString);
   const now = new Date();
   const diffMs = now - date;
@@ -1132,7 +1166,7 @@ function formatRelativeTime(dateString) {
   return formatDate(dateString);
 }
 
-function getActivityClass(dateString) {
+function getActivityClass(dateString: string): string {
   const date = new Date(dateString);
   const now = new Date();
   const diffDays = Math.floor((now - date) / 86400000);
@@ -1143,7 +1177,7 @@ function getActivityClass(dateString) {
   return 'activity-old';
 }
 
-function getDefaultAvatar(name) {
+function getDefaultAvatar(name: string): string {
   const colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8'];
   const initial = name.charAt(0).toUpperCase();
   const colorIndex = name.charCodeAt(0) % colors.length;
