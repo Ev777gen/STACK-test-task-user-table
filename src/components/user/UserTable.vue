@@ -1,756 +1,102 @@
 <template>
   <div class="user-table-container">
     <!-- Хедер с действиями -->
-    <div class="table-header">
-      <div class="header-left">
-        <h2>{{ title }}</h2>
-        <span class="total-count">{{ filteredAndSearchedUsers.length }} записей</span>
-      </div>
-      
-      <div class="header-right">
-        <input 
-          v-model="searchQuery"
-          type="text" 
-          placeholder="Поиск по имени, email..."
-          class="search-input"
-          @input="handleSearch"
-        />
-        
-        <select v-model="filterRole" class="role-filter">
-          <option value="">Все роли</option>
-          <option value="admin">Администратор</option>
-          <option value="user">Пользователь</option>
-          <option value="moderator">Модератор</option>
-        </select>
-        
-        <button 
-          @click="openAddUserModal"
-          class="btn btn-primary"
-          :disabled="isLoading"
-        >
-          + Добавить пользователя
-        </button>
-        
-        <button 
-          @click="exportToCSV"
-          class="btn btn-secondary"
-          :disabled="isLoading || selectedUsers.length === 0 && !showAllUsers"
-        >
-          📥 Экспорт
-        </button>
-        
-        <button 
-          v-if="selectedUsers.length > 0"
-          @click="deleteSelectedUsers"
-          class="btn btn-danger"
-        >
-          🗑️ Удалить выбранные ({{ selectedUsers.length }})
-        </button>
-      </div>
-    </div>
+    <UserTableHeader 
+      :title="title" 
+      :is-loading="isLoading" 
+      @add-user="openAddUserModal" 
+    />
 
     <!-- Фильтры -->
-    <div class="filters-section">
-      <div class="filter-group">
-        <label>Статус:</label>
-        <button 
-          :class="['filter-btn', { active: filterStatus === '' }]"
-          @click="filterStatus = ''"
-        >
-          Все
-        </button>
-        <button 
-          :class="['filter-btn', { active: filterStatus === 'active' }]"
-          @click="filterStatus = 'active'"
-        >
-          Активные
-        </button>
-        <button 
-          :class="['filter-btn', { active: filterStatus === 'inactive' }]"
-          @click="filterStatus = 'inactive'"
-        >
-          Неактивные
-        </button>
-      </div>
-      
-      <div class="filter-group">
-        <label>Дата регистрации:</label>
-        <input 
-          v-model="dateFrom" 
-          type="date" 
-          class="date-input"
-        />
-        <span>-</span>
-        <input 
-          v-model="dateTo" 
-          type="date" 
-          class="date-input"
-        />
-        <button 
-          @click="clearDateFilter"
-          class="btn-clear"
-        >
-          Очистить
-        </button>
-      </div>
-    </div>
+    <UserTableFilters />
 
     <!-- Загрузка -->
-    <div v-if="isLoading" class="loading-overlay">
-      <div class="spinner"></div>
-      <p>Загрузка данных...</p>
-    </div>
+    <AppLoader 
+      v-if="isLoading" 
+      :is-loading="isLoading" 
+    />
 
     <!-- Ошибка -->
-    <div v-if="error" class="error-message">
-      <span>❌ {{ error }}</span>
-      <button @click="retryLoad" class="btn-retry">Повторить</button>
-    </div>
+    <ErrorBlockRetry 
+      v-if="error" 
+      :error="error" 
+    />
 
     <!-- Таблица -->
-    <div v-if="!isLoading && !error" class="table-wrapper">
-      <table class="user-table">
-        <thead>
-          <tr>
-            <th>
-              <input 
-                type="checkbox" 
-                :checked="isAllSelected"
-                @change="toggleSelectAll"
-              />
-            </th>
-            <th 
-              @click="sortBy('id')"
-              :class="{ sortable: true, active: sortColumn === 'id' }"
-            >
-              ID
-              <span v-if="sortColumn === 'id'">
-                {{ sortDirection === 'asc' ? '↑' : '↓' }}
-              </span>
-            </th>
-            <th 
-              @click="sortBy('name')"
-              :class="{ sortable: true, active: sortColumn === 'name' }"
-            >
-              Имя
-              <span v-if="sortColumn === 'name'">
-                {{ sortDirection === 'asc' ? '↑' : '↓' }}
-              </span>
-            </th>
-            <th 
-              @click="sortBy('email')"
-              :class="{ sortable: true, active: sortColumn === 'email' }"
-            >
-              Email
-              <span v-if="sortColumn === 'email'">
-                {{ sortDirection === 'asc' ? '↑' : '↓' }}
-              </span>
-            </th>
-            <th>Роль</th>
-            <th>Статус</th>
-            <th 
-              @click="sortBy('registrationDate')"
-              :class="{ sortable: true, active: sortColumn === 'registrationDate' }"
-            >
-              Дата регистрации
-              <span v-if="sortColumn === 'registrationDate'">
-                {{ sortDirection === 'asc' ? '↑' : '↓' }}
-              </span>
-            </th>
-            <th>Последняя активность</th>
-            <th>Действия</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr 
-            v-for="user in paginatedUsers" 
-            :key="user.id"
-            :class="{ 
-              selected: selectedUsers.includes(user.id),
-              editing: editingUserId === user.id,
-              inactive: user.status === 'inactive'
-            }"
-          >
-            <td>
-              <input 
-                type="checkbox" 
-                :checked="selectedUsers.includes(user.id)"
-                @change="toggleSelectUser(user.id)"
-              />
-            </td>
-            <td>{{ user.id }}</td>
-            <td>
-              <div v-if="editingUserId === user.id">
-                <input 
-                  v-model="editForm.name"
-                  type="text"
-                  class="edit-input"
-                />
-              </div>
-              <div v-else class="user-name-cell">
-                <img 
-                  :src="user.avatar || getDefaultAvatar(user.name)" 
-                  :alt="user.name"
-                  class="avatar"
-                />
-                <span>{{ user.name }}</span>
-              </div>
-            </td>
-            <td>
-              <div v-if="editingUserId === user.id">
-                <input 
-                  v-model="editForm.email"
-                  type="email"
-                  class="edit-input"
-                />
-              </div>
-              <div v-else>{{ user.email }}</div>
-            </td>
-            <td>
-              <div v-if="editingUserId === user.id">
-                <select v-model="editForm.role" class="edit-select">
-                  <option value="admin">Администратор</option>
-                  <option value="user">Пользователь</option>
-                  <option value="moderator">Модератор</option>
-                </select>
-              </div>
-              <div v-else>
-                <span :class="['role-badge', 'role-' + user.role]">
-                  {{ getRoleLabel(user.role) }}
-                </span>
-              </div>
-            </td>
-            <td>
-              <span 
-                :class="['status-badge', user.status === 'active' ? 'status-active' : 'status-inactive']"
-                @click="toggleUserStatus(user.id)"
-                :style="{ cursor: 'pointer' }"
-              >
-                {{ user.status === 'active' ? '✓ Активен' : '✗ Неактивен' }}
-              </span>
-            </td>
-            <td>{{ formatDate(user.registrationDate) }}</td>
-            <td>
-              <span :class="getActivityClass(user.lastActivity)">
-                {{ formatRelativeTime(user.lastActivity) }}
-              </span>
-            </td>
-            <td>
-              <div class="action-buttons">
-                <button 
-                  v-if="editingUserId !== user.id"
-                  @click="startEdit(user)"
-                  class="btn-icon"
-                  title="Редактировать"
-                >
-                  ✏️
-                </button>
-                <button 
-                  v-if="editingUserId === user.id"
-                  @click="saveEdit(user.id)"
-                  class="btn-icon btn-success"
-                  title="Сохранить"
-                >
-                  ✓
-                </button>
-                <button 
-                  v-if="editingUserId === user.id"
-                  @click="cancelEdit"
-                  class="btn-icon btn-cancel"
-                  title="Отмена"
-                >
-                  ✗
-                </button>
-                <button 
-                  v-if="editingUserId !== user.id"
-                  @click="openUserDetails(user)"
-                  class="btn-icon"
-                  title="Подробнее"
-                >
-                  👁️
-                </button>
-                <button 
-                  v-if="editingUserId !== user.id"
-                  @click="deleteUser(user.id)"
-                  class="btn-icon btn-danger"
-                  title="Удалить"
-                >
-                  🗑️
-                </button>
-              </div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-
-      <!-- Сообщение если нет данных -->
-      <div v-if="paginatedUsers.length === 0" class="no-data">
-        <p>😔 Нет данных для отображения</p>
-        <button @click="clearAllFilters" class="btn btn-primary">
-          Сбросить фильтры
-        </button>
-      </div>
-    </div>
+    <UserTableGrid 
+      v-if="!isLoading && !error" 
+      @open-user-details="openUserDetails" 
+    />
 
     <!-- Пагинация -->
-    <div v-if="!isLoading" class="pagination">
-      <div class="pagination-info">
-        Показано {{ paginationStart }} - {{ paginationEnd }} из {{ filteredAndSearchedUsers.length }}
-      </div>
-      
-      <div class="pagination-controls">
-        <button 
-          @click="goToPage(1)"
-          :disabled="currentPage === 1"
-          class="btn-page"
-        >
-          ⏮️
-        </button>
-        <button 
-          @click="goToPage(currentPage - 1)"
-          :disabled="currentPage === 1"
-          class="btn-page"
-        >
-          ◀️
-        </button>
-        
-        <button 
-          v-for="page in visiblePages"
-          :key="page"
-          @click="goToPage(page)"
-          :class="['btn-page', { active: currentPage === page }]"
-        >
-          {{ page }}
-        </button>
-        
-        <button 
-          @click="goToPage(currentPage + 1)"
-          :disabled="currentPage === totalPages"
-          class="btn-page"
-        >
-          ▶️
-        </button>
-        <button 
-          @click="goToPage(totalPages)"
-          :disabled="currentPage === totalPages"
-          class="btn-page"
-        >
-          ⏭️
-        </button>
-      </div>
-      
-      <div class="page-size-selector">
-        <label>На странице:</label>
-        <select v-model="pageSize" @change="handlePageSizeChange">
-          <option :value="10">10</option>
-          <option :value="25">25</option>
-          <option :value="50">50</option>
-          <option :value="100">100</option>
-        </select>
-      </div>
-    </div>
+    <UserTablePagination 
+      v-if="!isLoading" 
+    />
 
     <!-- Модальное окно добавления пользователя -->
-    <div v-if="showAddUserModal" class="modal-overlay" @click.self="closeAddUserModal">
-      <div class="modal">
-        <div class="modal-header">
-          <h3>Добавить нового пользователя</h3>
-          <button @click="closeAddUserModal" class="btn-close">✕</button>
-        </div>
-        
-        <div class="modal-body">
-          <div class="form-group">
-            <label>Имя*</label>
-            <input 
-              v-model="newUser.name"
-              type="text"
-              :class="{ error: newUserErrors.name }"
-              @input="validateNewUserName"
-            />
-            <span v-if="newUserErrors.name" class="error-text">
-              {{ newUserErrors.name }}
-            </span>
-          </div>
-          
-          <div class="form-group">
-            <label>Email*</label>
-            <input 
-              v-model="newUser.email"
-              type="email"
-              :class="{ error: newUserErrors.email }"
-              @input="validateNewUserEmail"
-            />
-            <span v-if="newUserErrors.email" class="error-text">
-              {{ newUserErrors.email }}
-            </span>
-          </div>
-          
-          <div class="form-group">
-            <label>Роль*</label>
-            <select v-model="newUser.role">
-              <option value="user">Пользователь</option>
-              <option value="moderator">Модератор</option>
-              <option value="admin">Администратор</option>
-            </select>
-          </div>
-          
-          <div class="form-group">
-            <label>
-              <input 
-                v-model="newUser.sendWelcomeEmail"
-                type="checkbox"
-              />
-              Отправить приветственное письмо
-            </label>
-          </div>
-        </div>
-        
-        <div class="modal-footer">
-          <button 
-            @click="closeAddUserModal"
-            class="btn btn-secondary"
-          >
-            Отмена
-          </button>
-          <button 
-            @click="addNewUser"
-            class="btn btn-primary"
-            :disabled="!isNewUserValid || isSaving"
-          >
-            {{ isSaving ? 'Сохранение...' : 'Добавить' }}
-          </button>
-        </div>
-      </div>
-    </div>
+    <UserTableAddUserModal 
+      v-if="showAddUserModal" 
+      @close="closeAddUserModal" 
+    />
 
     <!-- Модальное окно деталей пользователя -->
-    <div v-if="showDetailsModal" class="modal-overlay" @click.self="closeDetailsModal">
-      <div class="modal modal-large">
-        <div class="modal-header">
-          <h3>Информация о пользователе</h3>
-          <button @click="closeDetailsModal" class="btn-close">✕</button>
-        </div>
-        
-        <div class="modal-body" v-if="selectedUser">
-          <div class="user-details">
-            <div class="detail-section">
-              <img 
-                :src="selectedUser.avatar || getDefaultAvatar(selectedUser.name)" 
-                :alt="selectedUser.name"
-                class="avatar-large"
-              />
-              <h2>{{ selectedUser.name }}</h2>
-              <p class="user-email">{{ selectedUser.email }}</p>
-            </div>
-            
-            <div class="detail-section">
-              <h4>Основная информация</h4>
-              <div class="detail-row">
-                <span class="label">ID:</span>
-                <span>{{ selectedUser.id }}</span>
-              </div>
-              <div class="detail-row">
-                <span class="label">Роль:</span>
-                <span :class="['role-badge', 'role-' + selectedUser.role]">
-                  {{ getRoleLabel(selectedUser.role) }}
-                </span>
-              </div>
-              <div class="detail-row">
-                <span class="label">Статус:</span>
-                <span :class="['status-badge', selectedUser.status === 'active' ? 'status-active' : 'status-inactive']">
-                  {{ selectedUser.status === 'active' ? 'Активен' : 'Неактивен' }}
-                </span>
-              </div>
-              <div class="detail-row">
-                <span class="label">Дата регистрации:</span>
-                <span>{{ formatDate(selectedUser.registrationDate) }}</span>
-              </div>
-              <div class="detail-row">
-                <span class="label">Последняя активность:</span>
-                <span>{{ formatRelativeTime(selectedUser.lastActivity) }}</span>
-              </div>
-            </div>
-            
-            <div class="detail-section">
-              <h4>Статистика</h4>
-              <div class="stats-grid">
-                <div class="stat-card">
-                  <div class="stat-value">{{ selectedUser.loginCount || 0 }}</div>
-                  <div class="stat-label">Входов</div>
-                </div>
-                <div class="stat-card">
-                  <div class="stat-value">{{ selectedUser.postsCount || 0 }}</div>
-                  <div class="stat-label">Постов</div>
-                </div>
-                <div class="stat-card">
-                  <div class="stat-value">{{ selectedUser.commentsCount || 0 }}</div>
-                  <div class="stat-label">Комментариев</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-        
-        <div class="modal-footer">
-          <button 
-            @click="closeDetailsModal"
-            class="btn btn-secondary"
-          >
-            Закрыть
-          </button>
-        </div>
-      </div>
-    </div>
+    <UserTableDetailsModal 
+      v-if="showDetailsModal" 
+      :selected-user="selectedUser" 
+      @close="closeDetailsModal" 
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, reactive, onMounted, watch } from 'vue';
+import { ref, onMounted, watch } from 'vue';
+import UserTablePagination from './UserTablePagination.vue';
+import type { User } from '../../types';
+import { useSearchAndFilters } from '../../composables/search';
+import { useUsers } from '../../composables/users';
+import { usePagination } from '../../composables/pagination';
+import UserTableAddUserModal from './UserTableAddUserModal.vue';
+import UserTableDetailsModal from './UserTableDetailsModal.vue';
+import UserTableGrid from './UserTableGrid.vue';
+import UserTableHeader from './UserTableHeader.vue';
+import UserTableFilters from './UserTableFilters.vue';
+import AppLoader from '../common/AppLoader.vue';
+import ErrorBlockRetry from '../common/ErrorBlockRetry.vue';
 
 // Props
-
 const props = withDefaults(defineProps<{
-  title: string
-  initialPageSize: number
-  apiEndpoint: string
+  title?: string
+  initialPageSize?: number
+  apiEndpoint?: string
 }>(), {
   title: 'Управление пользователями',
   initialPageSize: 25,
   apiEndpoint: '/api/users',
 });
 
-// Types
+const { users } = useUsers()
 
-interface User {
-  id: number
-  name: string
-  email: string
-  role: string
-  status: string
-  registrationDate: string
-  lastActivity: string
-  avatar: string | null
-  loginCount: number
-  postsCount: number
-  commentsCount: number
-}
+const {
+  searchQuery,
+  filterRole,
+  filterStatus,
+  dateFrom,
+  dateTo,
+} = useSearchAndFilters()
 
-interface EditForm {
-  name: string
-  email: string
-  role: string
-}
-
-// Data
-
-// Данные
-const users: User[] = reactive([]);
+const {
+  pageSize,
+  handlePageSizeChange,
+} = usePagination(props.initialPageSize)
 
 // Состояния загрузки
 const isLoading = ref(false);
-const isSaving = ref(false);
 const error = ref<string | null>(null);
-
-// Поиск и фильтрация
-const searchQuery = ref('');
-const filterRole = ref('');
-const filterStatus = ref('');
-const dateFrom = ref('');
-const dateTo = ref('');
-
-// Сортировка
-const sortColumn = ref('id');
-const sortDirection = ref('asc');
-
-// Пагинация
-const currentPage = ref(1);
-const pageSize = ref<number>(props.initialPageSize);
-
-// Выбор строк
-const selectedUsers: User['id'][] = reactive([]);
-const showAllUsers = ref(false);
-
-// Редактирование
-const editingUserId = ref<number | null>(null);
-const editForm = ref<EditForm>({
-  name: '',
-  email: '',
-  role: ''
-});
 
 // Модальные окна
 const showAddUserModal = ref(false);
 const showDetailsModal = ref(false);
 const selectedUser = ref<User | null>(null);
-
-// Новый пользователь
-const newUser = ref<Partial<User>>({
-  name: '',
-  email: '',
-  role: 'user',
-  sendWelcomeEmail: true
-});
-const newUserErrors = ref<{ name: string, email: string }>({
-  name: '',
-  email: ''
-});
-
-// Computed
-
-// Фильтрация по роли
-const roleFilteredUsers = computed<User[]>(() => {
-  if (!filterRole.value) {
-    return users;
-  }
-  return users.filter(user => user.role === filterRole.value);
-});
-
-// Фильтрация по статусу
-const statusFilteredUsers = computed<User[]>(() => {
-  if (!filterStatus.value) {
-    return roleFilteredUsers.value;
-  }
-  return roleFilteredUsers.value.filter(user => user.status === filterStatus.value);
-});
-
-// Фильтрация по датам
-const dateFilteredUsers = computed<User[]>(() => {
-  let filtered = statusFilteredUsers.value;
-
-  if (dateFrom.value) {
-    const fromDate = new Date(dateFrom.value);
-    filtered = filtered.filter(user => {
-      const userDate = new Date(user.registrationDate);
-      return userDate >= fromDate;
-    });
-  }
-
-  if (dateTo.value) {
-    const toDate = new Date(dateTo.value);
-    toDate.setHours(23, 59, 59, 999);
-    filtered = filtered.filter(user => {
-      const userDate = new Date(user.registrationDate);
-      return userDate <= toDate;
-    });
-  }
-
-  return filtered;
-});
-
-// Поиск
-const filteredAndSearchedUsers = computed<User[]>(() => {
-  if (!searchQuery.value.trim()) {
-    return dateFilteredUsers.value;
-  }
-
-  const query = searchQuery.value.toLowerCase().trim();
-  return dateFilteredUsers.value.filter(user => {
-    return user.name.toLowerCase().includes(query) ||
-      user.email.toLowerCase().includes(query) ||
-      user.id.toString().includes(query);
-  });
-});
-
-// Сортировка
-const sortedUsers = computed<User[]>(() => {
-  const users = [...filteredAndSearchedUsers.value];
-
-  users.sort((a, b) => {
-    let aVal = a[sortColumn.value];
-    let bVal = b[sortColumn.value];
-
-    if (sortColumn.value === 'registrationDate' || sortColumn.value === 'lastActivity') {
-      aVal = new Date(aVal).getTime();
-      bVal = new Date(bVal).getTime();
-    } else if (typeof aVal === 'string') {
-      aVal = aVal.toLowerCase();
-      bVal = bVal.toLowerCase();
-    }
-
-    if (aVal < bVal) {
-      return sortDirection.value === 'asc' ? -1 : 1;
-    }
-    if (aVal > bVal) {
-      return sortDirection.value === 'asc' ? 1 : -1;
-    }
-    return 0;
-  });
-
-  return users;
-});
-
-// Пагинация
-const totalPages = computed<number>(() => {
-  return Math.ceil(sortedUsers.value.length / pageSize.value);
-});
-
-const paginationStart = computed<number>(() => {
-  return (currentPage.value - 1) * pageSize.value + 1;
-});
-
-const paginationEnd = computed<number>(() => {
-  const end = currentPage.value * pageSize.value;
-  return end > sortedUsers.value.length ? sortedUsers.value.length : end;
-});
-
-const paginatedUsers = computed<User[]>(() => {
-  const start = (currentPage.value - 1) * pageSize.value;
-  const end = start + pageSize.value;
-  return sortedUsers.value.slice(start, end);
-});
-
-const visiblePages = computed<number[]>(() => {
-  const pages = [];
-  const total = totalPages.value;
-  const current = currentPage.value;
-
-  if (total <= 7) {
-    for (let i = 1; i <= total; i++) {
-      pages.push(i);
-    }
-  } else {
-    if (current <= 4) {
-      for (let i = 1; i <= 5; i++) {
-        pages.push(i);
-      }
-      pages.push('...');
-      pages.push(total);
-    } else if (current >= total - 3) {
-      pages.push(1);
-      pages.push('...');
-      for (let i = total - 4; i <= total; i++) {
-        pages.push(i);
-      }
-    } else {
-      pages.push(1);
-      pages.push('...');
-      for (let i = current - 1; i <= current + 1; i++) {
-        pages.push(i);
-      }
-      pages.push('...');
-      pages.push(total);
-    }
-  }
-
-  return pages;
-});
-
-// Выбор всех
-const isAllSelected = computed<boolean>(() => {
-  return paginatedUsers.value.length > 0 && 
-          paginatedUsers.value.every(user => selectedUsers.includes(user.id));
-})
-
-// Валидация нового пользователя
-const isNewUserValid = computed<boolean>(() => {
-  return Boolean(newUser.value.name && newUser.value.name.trim().length > 0 &&
-    newUser.value.email && newUser.value.email.trim().length > 0 &&
-    validateEmail(newUser.value.email) &&
-    !newUserErrors.value.name &&
-    !newUserErrors.value.email);
-});
-
-// Watch
 
 watch([
   searchQuery,
@@ -763,13 +109,9 @@ watch([
   handlePageSizeChange()
 });
 
-// Lifecycle hooks
-
 onMounted(() => {
   loadUsers();
 });
-
-// Methods
 
 // Загрузка данных
 async function loadUsers(): Promise<void> {
@@ -826,257 +168,13 @@ function generateMockUsers(count: number): User[] {
   return users;
 }
 
-// Поиск
-function handleSearch() {
-  // Дебаунс можно добавить здесь
-}
-
-// Сортировка
-function sortBy(column: string): void {
-  if (sortColumn.value === column) {
-    sortDirection.value = sortDirection.value === 'asc' ? 'desc' : 'asc';
-  } else {
-    sortColumn.value = column;
-    sortDirection.value = 'asc';
-  }
-}
-
-// Пагинация
-function goToPage(page: number): void {
-  if (page >= 1 && page <= totalPages.value) {
-    currentPage.value = page;
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  }
-}
-
-function handlePageSizeChange(): void {
-  currentPage.value = 1;
-}
-
-// Выбор строк
-function toggleSelectUser(userId: User['id']): void {
-  const index = selectedUsers.indexOf(userId);
-  if (index > -1) {
-    selectedUsers.splice(index, 1);
-  } else {
-    selectedUsers.push(userId);
-  }
-}
-
-function toggleSelectAll(): void {
-  if (isAllSelected.value) {
-    paginatedUsers.value.forEach(user => {
-      const index = selectedUsers.indexOf(user.id);
-      if (index > -1) {
-        selectedUsers.splice(index, 1);
-      }
-    });
-  } else {
-    paginatedUsers.value.forEach(user => {
-      if (!selectedUsers.includes(user.id)) {
-        selectedUsers.push(user.id);
-      }
-    });
-  }
-}
-
-// Редактирование
-function startEdit(user: User): void {
-  editingUserId.value = user.id;
-  editForm.value = {
-    name: user.name,
-    email: user.email,
-    role: user.role
-  };
-}
-
-function cancelEdit(): void {
-  editingUserId.value = null;
-  editForm.value = {
-    name: '',
-    email: '',
-    role: ''
-  };
-}
-
-async function saveEdit(userId: User['id']): Promise<void> {
-  isSaving.value = true;
-  
-  try {
-    // Симуляция API запроса
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
-    const userIndex = users.findIndex(u => u.id === userId);
-    if (userIndex !== -1) {
-      users[userIndex] = {
-        ...users[userIndex],
-        ...editForm.value
-      };
-    }
-    
-    editingUserId.value = null;
-    editForm.value = {
-      name: '',
-      email: '',
-      role: ''
-    };
-  } catch (err) {
-    if (err instanceof Error) {
-      alert('Ошибка сохранения: ' + err.message);
-    }
-  } finally {
-    isSaving.value = false;
-  }
-}
-
-// Удаление
-async function deleteUser(userId: User['id']): Promise<void> {
-  if (!confirm('Вы уверены, что хотите удалить этого пользователя?')) {
-    return;
-  }
-  
-  try {
-    // Симуляция API запроса
-    await new Promise(resolve => setTimeout(resolve, 300));
-    
-    const index = users.findIndex(u => u.id === userId);
-    if (index !== -1) {
-      users.splice(index, 1);
-    }
-    
-    // Удаляем из выбранных
-    const selectedIndex = selectedUsers.indexOf(userId);
-    if (selectedIndex > -1) {
-      selectedUsers.splice(selectedIndex, 1);
-    }
-  } catch (err) {
-    if (err instanceof Error) {
-      alert('Ошибка удаления: ' + err.message);
-    }
-  }
-}
-
-async function deleteSelectedUsers(): Promise<void> {
-  if (!confirm(`Вы уверены, что хотите удалить ${selectedUsers.length} пользователей?`)) {
-    return;
-  }
-  
-  try {
-    // Симуляция API запроса
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
-    selectedUsers.forEach(user => {
-      const index = users.findIndex(u => u.id === user.id)
-      if (index === -1)
-        throw new Error('Пользователь не найден');
-
-      users.splice(index, 1)
-    })
-    selectedUsers.length = 0;
-  } catch (err) {
-    if (err instanceof Error) {
-      alert('Ошибка удаления: ' + err.message);
-    }
-  }
-}
-
-// Переключение статуса
-async function toggleUserStatus(userId: User['id']): Promise<void> {
-  try {
-    const user = users.find(u => u.id === userId);
-    if (user) {
-      user.status = user.status === 'active' ? 'inactive' : 'active';
-    }
-  } catch (err) {
-    if (err instanceof Error) {
-      alert('Ошибка изменения статуса: ' + err.message);
-    }
-  }
-}
-
 // Модальное окно добавления
 function openAddUserModal(): void {
   showAddUserModal.value = true;
-  newUser.value = {
-    name: '',
-    email: '',
-    role: 'user',
-    sendWelcomeEmail: true
-  };
-  newUserErrors.value = {
-    name: '',
-    email: ''
-  };
 }
 
 function closeAddUserModal(): void {
   showAddUserModal.value = false;
-}
-
-function validateNewUserName(): void {
-  if (newUser.value.name.trim().length === 0) {
-    newUserErrors.value.name = 'Имя обязательно для заполнения';
-  } else if (newUser.value.name.trim().length < 3) {
-    newUserErrors.value.name = 'Имя должно содержать минимум 3 символа';
-  } else {
-    newUserErrors.value.name = '';
-  }
-}
-
-function validateNewUserEmail(): void {
-  if (newUser.value.email.trim().length === 0) {
-    newUserErrors.value.email = 'Email обязателен для заполнения';
-  } else if (!validateEmail(newUser.value.email)) {
-    newUserErrors.value.email = 'Некорректный формат email';
-  } else if (users.some(u => u.email === newUser.value.email)) {
-    newUserErrors.value.email = 'Пользователь с таким email уже существует';
-  } else {
-    newUserErrors.value.email = '';
-  }
-}
-
-function validateEmail(email: string): boolean {
-  const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  return re.test(email);
-}
-
-async function addNewUser(): Promise<void> {
-  validateNewUserName();
-  validateNewUserEmail();
-  
-  if (!isNewUserValid.value) {
-    return;
-  }
-  
-  isSaving.value = true;
-  
-  try {
-    // Симуляция API запроса
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    const user: User = {
-      id: Math.max(...users.map(u => u.id)) + 1,
-      name: newUser.value.name,
-      email: newUser.value.email,
-      role: newUser.value.role,
-      status: 'active',
-      registrationDate: new Date().toISOString(),
-      lastActivity: new Date().toISOString(),
-      avatar: null,
-      loginCount: 0,
-      postsCount: 0,
-      commentsCount: 0
-    };
-    
-    users.unshift(user);
-    closeAddUserModal();
-  } catch (err) {
-    if (err instanceof Error) {
-      alert('Ошибка создания пользователя: ' + err.message);
-    }
-  } finally {
-    isSaving.value = false;
-  }
 }
 
 // Модальное окно деталей
@@ -1088,102 +186,6 @@ function openUserDetails(user: User): void {
 function closeDetailsModal(): void {
   showDetailsModal.value = false;
   selectedUser.value = null;
-}
-
-// Экспорт
-function exportToCSV(): void {
-  const usersToExport = selectedUsers.length > 0
-    ? users.filter(u => selectedUsers.includes(u.id))
-    : sortedUsers.value;
-  
-  const headers = ['ID', 'Имя', 'Email', 'Роль', 'Статус', 'Дата регистрации'];
-  const rows = usersToExport.map(user => [
-    user.id,
-    user.name,
-    user.email,
-    getRoleLabel(user.role),
-    user.status === 'active' ? 'Активен' : 'Неактивен',
-    formatDate(user.registrationDate)
-  ]);
-  
-  let csv = headers.join(',') + '\n';
-  rows.forEach(row => {
-    csv += row.map(cell => `"${cell}"`).join(',') + '\n';
-  });
-  
-  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
-  const link = document.createElement('a');
-  link.href = URL.createObjectURL(blob);
-  link.download = `users_export_${new Date().getTime()}.csv`;
-  link.click();
-}
-
-// Очистка фильтров
-function clearDateFilter(): void {
-  dateFrom.value = '';
-  dateTo.value = '';
-}
-
-function clearAllFilters(): void {
-  searchQuery.value = '';
-  filterRole.value = '';
-  filterStatus.value = '';
-  dateFrom.value = '';
-  dateTo.value = '';
-}
-
-// Утилиты
-function getRoleLabel(role: 'admin' | 'user' | 'moderator' | string): string {
-  const labels = {
-    admin: 'Администратор',
-    user: 'Пользователь',
-    moderator: 'Модератор'
-  };
-  return labels[role] || role;
-}
-
-function formatDate(dateString: string): string {
-  const date = new Date(dateString);
-  return date.toLocaleDateString('ru-RU', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric'
-  });
-}
-
-function formatRelativeTime(dateString: string): string {
-  const date = new Date(dateString);
-  const now = new Date();
-  const diffMs = now - date;
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-  const diffDays = Math.floor(diffMs / 86400000);
-  
-  if (diffMins < 1) return 'только что';
-  if (diffMins < 60) return `${diffMins} мин. назад`;
-  if (diffHours < 24) return `${diffHours} ч. назад`;
-  if (diffDays < 30) return `${diffDays} дн. назад`;
-  return formatDate(dateString);
-}
-
-function getActivityClass(dateString: string): string {
-  const date = new Date(dateString);
-  const now = new Date();
-  const diffDays = Math.floor((now - date) / 86400000);
-  
-  if (diffDays < 1) return 'activity-recent';
-  if (diffDays < 7) return 'activity-week';
-  if (diffDays < 30) return 'activity-month';
-  return 'activity-old';
-}
-
-function getDefaultAvatar(name: string): string {
-  const colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8'];
-  const initial = name.charAt(0).toUpperCase();
-  const colorIndex = name.charCodeAt(0) % colors.length;
-  const color = colors[colorIndex];
-  
-  return `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Crect width='40' height='40' fill='${encodeURIComponent(color)}'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' font-family='Arial' font-size='20' fill='white'%3E${initial}%3C/text%3E%3C/svg%3E`;
 }
 </script>
 
